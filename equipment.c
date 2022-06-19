@@ -7,6 +7,76 @@
 #include <stdlib.h>
 #include "common.h"
 
+#define MAX_TOKENS 4
+
+#define debug true
+
+int thisId = -1;
+bool idDefined = false;
+
+bool equipments[MAX_EQUIPMENTS];
+
+
+void _handleError(char **tokens, int size) {
+	char* errorType = tokens[1];
+	if(strcmp(errorType, ERR_EQUIPMENT_NOT_FOUND) == 0) { 
+		printf("Equipment not found\n");
+	} else if(strcmp(errorType, ERR_SOURCE_EQUIPMENT_NOT_FOUND) == 0) { 
+		printf("Source equipment not found\n");
+	} else if(strcmp(errorType, ERR_TARGET_EQUIPMENT_NOT_FOUND) == 0) { 
+		printf("Target equipment not found\n");
+	} else if(strcmp(errorType, ERR_EQUIPMENT_LIMIT_EXCEEDED) == 0) { 
+		printf("Equipment limit exceeded\n");
+	}
+}
+
+void _handleEquipmenetAdded(char **tokens, int size) {
+	int eqId = atoi(tokens[0]);
+	
+	if(idDefined) {
+		printf("Equipment %s added\n", tokens[0]);
+	}else{
+		idDefined = true;
+		printf("New ID: %s\n", tokens[0]);
+		thisId = eqId;
+	}
+	equipments[eqId] = true;
+}
+
+void _handleCurrentEquipmentList(char **tokens, int size) {
+	char **ids = malloc(sizeof(char *) * MAX_TOKENS);
+	int idCount; split(tokens[0], ids, &idCount, ",");
+	
+	for(int i = 0; i < idCount; i++) {
+		int id = atoi(ids[i]);
+		equipments[id] = true;
+		if(debug) printf("(debug) ceq: %d\n", id);
+	}
+}
+
+void _handleServerMessage(char *message) {
+	if(debug) {
+		printf("(debug) Message Received: %s\n", message);
+	}
+
+	char **tokens = malloc(sizeof(char *) * MAX_TOKENS);
+	int tc; split(message, tokens, &tc, " ");
+
+	int subtSize = tc - 1;
+	char **subtokens = malloc(sizeof(char *) * subtSize);
+	for(int i = 1; i < subtSize + 1; i++) {
+		subtokens[i - 1] = tokens[i];
+	}
+
+	char* commandType = tokens[0];
+	if(strcmp(commandType, RES_ADD) == 0) {
+		_handleEquipmenetAdded(subtokens, subtSize);
+	} else if(strcmp(commandType, RES_LIST) == 0) {
+		_handleCurrentEquipmentList(subtokens, subtSize);
+	} else if(strcmp(commandType, ERROR) == 0) {
+		_handleError(subtokens, subtSize);
+	}
+}
 
 void *threadReceiveMessage(void *arg) {
 	int sock = *((int *)arg);
@@ -20,13 +90,24 @@ void *threadReceiveMessage(void *arg) {
 		if(valread == 0) {
 			exit(0);
 		}
-		printf("%s", buffer);
+
+		char **messages = malloc(sizeof(char *) * MAX_TOKENS);
+		int messageCount; split(buffer, messages, &messageCount, "\n");
+		for(int i = 0; i < messageCount; i++) {
+			_handleServerMessage(messages[i]);
+		}
 		memset(buffer, 0, sizeof(buffer));
+		free(messages);
 	}
 	
 	
 	int* returnMessage;
 	return returnMessage;
+}
+
+char* _getMessage(char* command, size_t commandSize) {
+
+	return command;
 }
 
 int main(int argc, char const* argv[])
@@ -81,14 +162,17 @@ int main(int argc, char const* argv[])
 		char *command = malloc(bufsize * sizeof(char));
 		getline(&command, &bufsize, stdin);
 
+		char *message = _getMessage(command, bufsize);
+
 		// strip special characters from message
 		int messageSize;
-		stripUnwantedChars(command, &messageSize);
+		stripUnwantedChars(message, &messageSize);
 
 		// TODO: convert command to message
 
 		// send message to server
-		send(sock, command, messageSize, 0);
+		send(sock, message, messageSize, 0);
+		free(message);
 		free(command);
 	}
 	return 0;

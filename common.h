@@ -28,6 +28,8 @@
 // Confirmation codes
 #define SUCCESSFUL_REMOVAL "01"
 
+#define MAX_EQUIPMENTS 5
+
 
 
 typedef struct parameters Parameters;
@@ -62,14 +64,14 @@ bool initProgram(Parameters *p, bool client, int argc, const char *argv[]) {
 }
 
 // Split a message into a list of strings
-void split(char *message, char **tokens, int *count) {
-	char *token = strtok(message, " ");
+void split(char *message, char **tokens, int *count, char* splitChar) {
+	char *token = strtok(message, splitChar);
 
 	
 	int c = 0;
    	while(token != NULL ) {
 		tokens[c++] = token;
-      	token = strtok(NULL, " ");
+      	token = strtok(NULL, splitChar);
    	}
 	// remove \n from last token
 	tokens[c-1] = strtok(tokens[c-1], "\n");
@@ -88,5 +90,6 @@ void stripUnwantedChars(char *data, int *size) {
             data[x++] = c;
         }
     }
+	data[x++] = '\0';
     *size = x;
 }

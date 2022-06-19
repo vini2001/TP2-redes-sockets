@@ -19,7 +19,8 @@
 #define EQUIPMENT_RANGE_FROM 1
 #define EQUIPMENT_RANGE_TO 4
 
-#define MAX_EQUIPMENTS 5
+#define DESTINATION_EQ_ID 1
+#define DESTINATION_SOCKET_ID 2
 
 struct threadArgs {
 	int sockId;
@@ -28,14 +29,8 @@ struct threadArgs {
 typedef struct threadArgs threadArgs;
 
 // Struct to hold the data of an equipment
-struct equipment {
-	bool sensors[4];
-	int* sensorList;
-	int sensorCount;
-};
-typedef struct equipment equipment;
 
-equipment equipments[MAX_EQUIPMENTS];
+bool equipments[MAX_EQUIPMENTS];
 int sensorCount = 0;
 
 pthread_t threads[MAX_EQUIPMENTS];
@@ -55,201 +50,66 @@ int threadId() {
 // Init the equipments without any sensors
 void _initEquipments() {
 	for(int i = 0; i < MAX_EQUIPMENTS; i++) {
-		memset(equipments[i].sensors, false, sizeof(equipments[i].sensors));
-		equipments[i].sensorList = malloc(sizeof(int) * 4);
-		equipments[i].sensorCount = 0;
+		equipments[i] = false;
 		busyThreads[i] = false;
 	}
 }
 
-// Mark the sensor as added and add it to the sensorList so we preserve the order they were added
-void _addSensor(int equipmentId, int sensor) {
-	equipmentId--;
-	equipment *eq = &equipments[equipmentId];
-	eq->sensors[sensor-1] = true;
-	eq->sensorList[eq->sensorCount++] = sensor;
-	sensorCount++;
-}
 
-// Mark the sensor as not added and remove it from the list. If it was not the last sensor
-// in the list, we need to shift the right part of the list one index to the left
-void _removeSensor(int eqId, int sensor) {
-	equipment* eq = &equipments[eqId-1];
-	eq->sensors[sensor-1] = false;
-	for(int i = 0; i < eq->sensorCount; i++) {
-		if(eq->sensorList[i] == sensor) {
-			// remove gaps int the list
-			for(int j = i; j < 3; j++) {
-				eq->sensorList[j] = eq->sensorList[j+1];
-			}
-			eq->sensorCount--;
-			sensorCount--;
-			break;
-		}
+void _sendMessage(char* idMsg, int originEqId, int destinationId, char* payload, int destinationType) {
+	char message[MAX_BYTES] = { 0 };
+	sprintf(message, "%s", idMsg);
+
+	if(strcmp(idMsg, REQ_REM) == 0 || strcmp(idMsg, REQ_INF) == 0 || strcmp(idMsg, RES_INF) == 0) {
+		sprintf(message, "%s %s%d", message, originEqId < 10 ? "0" : "", originEqId);
 	}
+
+	if(strcmp(idMsg, REQ_INF) == 0 || strcmp(idMsg, RES_INF) == 0 || strcmp(idMsg, ERROR) == 0 || strcmp(idMsg, OK) == 0) {
+		sprintf(message, "%s %s%d", message, destinationId < 10 ? "0" : "", destinationId);
+	}
+
+	if(strcmp(idMsg, RES_ADD) == 0 || strcmp(idMsg, RES_LIST) == 0 || strcmp(idMsg, RES_INF) == 0 || strcmp(idMsg, ERROR) == 0 || strcmp(idMsg, OK) == 0) {
+		sprintf(message, "%s %s", message, payload);
+	}
+	sprintf(message, "%s\n", message);
+	send(destinationType == DESTINATION_EQ_ID ?  threadSocketsMap[destinationId] : destinationId, message, strlen(message), 0);
 }
 
 
-// Validate if the sensors passed in a command are all valid
-bool validSensors(char **tokens, int count) {
-	for(int i = 0; i < count; i++) {
-		int sensor = atoi(tokens[i]);
-		if(sensor < SENSOR_RANGE_FROM || sensor > SENSOR_RANGE_TO) {
-			return false;
+void _sendEqList(int equipId) {
+	bool first = true;
+	char payload[MAX_BYTES] = { 0 };
+	for(int i = 0; i < MAX_EQUIPMENTS; i++) {
+		if(equipments[i]) {
+			sprintf(payload, "%s%s%d", payload, first ? "" : ",",  i);
+			first = false;
 		}
 	}
-	return true;
+	_sendMessage(RES_LIST, -1, equipId, payload, DESTINATION_EQ_ID);
 }
 
 // Broadcast the added equipment to all the clients
-char* _handleAddEquipment(int equipId) {
-	char* response = malloc(sizeof(char) * 100);
-	sprintf(response, "Equipment %d added\n", equipId);
+bool _handleAddEquipment(int equipId) {
 	for(int i = 0; i < MAX_EQUIPMENTS; i++) {
 		if(!busyThreads[i]) continue;
-		send(threadSocketsMap[i], response, strlen(response), 0);
+		char* addedEquipId = malloc(sizeof(char) * 2);
+		sprintf(addedEquipId, "%s%d", equipId < 10 ? "0" : "", equipId);
+		_sendMessage(RES_ADD, -1, i, addedEquipId, DESTINATION_EQ_ID);
+		free(addedEquipId);
 	}
-	return "";
+	equipments[equipId] = true;
+	_sendEqList(equipId);
+	return true;
 }
 
-// Do the required verifications and add a sensor to an equipment
-char* _handleAddSensor(char** tokens, int count, char* equipmentIdStr) {
-	int equipmentId = atoi(equipmentIdStr);
-	if(equipmentId < EQUIPMENT_RANGE_FROM || equipmentId > EQUIPMENT_RANGE_TO) {
-		return "invalid equipment\n";
-	}
-	equipment *eq = &equipments[equipmentId - 1];
-
-	if(!validSensors(tokens, count)) return "invalid sensor\n";
-
-	char* successMessage = malloc(sizeof(char) * 100);
-	char* errorMessage = malloc(sizeof(char) * 100);
-	char* returnMessage = malloc(sizeof(char) * 100);
-	sprintf(returnMessage, "%s ", "sensor");
-
-	int errorQtt = 0;
-	for(int i = 0; i < count; i++) {
-		int sensor = atoi(tokens[i]);
-		if(eq->sensors[sensor - 1]) {
-			errorQtt++;
-			sprintf(errorMessage, "%s%s ", errorMessage, tokens[i]);
-		}
-	}
-
-
-	if(sensorCount + count - errorQtt > 15) {
-		return "limit exceeded\n";
-	}
-	
-
-	bool addAny = false;
-	for(int i = 0; i < count; i++) {
-		int sensor = atoi(tokens[i]);
-		if(eq->sensors[sensor - 1]) continue;
-		_addSensor(equipmentId, sensor);
-		sprintf(successMessage, "%s%s ", successMessage, tokens[i]);
-		addAny = true;
-	}
-
-	if(addAny) {
-		sprintf(returnMessage, "%s%sadded%s", returnMessage, successMessage, errorQtt > 0 ? " " : "");
-	}
-	if(errorQtt > 0) {
-		sprintf(returnMessage, "%s%salready exists in %s", returnMessage, errorMessage, equipmentIdStr);
-	}
-	sprintf(returnMessage, "%s\n", returnMessage);
-
-	
-	return returnMessage;
-}
-
-	
-
-
-// Do the required verifications and read data from the sensors
-// Note that the data read is random
-char* _handleReadSensors(char** tokens, int count, char* equipmentIdStr) {
-	int equipmentId = atoi(equipmentIdStr);
-	if(equipmentId < EQUIPMENT_RANGE_FROM || equipmentId > EQUIPMENT_RANGE_TO) {
-		return "invalid equipment\n";
-	}
-	equipment *eq = &equipments[equipmentId - 1];
-	if(!validSensors(tokens, count)) return "invalid sensor\n";
-
-	char* successMessage = malloc(sizeof(char) * 100);
-	char* errorMessage = malloc(sizeof(char) * 100);
-	bool errorAny = false;
-	for(int i = 0; i < count; i++) {
-		int sensor = atoi(tokens[i]);
-		if(!eq->sensors[sensor - 1]) {
-			errorAny = true;
-			sprintf(errorMessage, "%s%s ", errorMessage, tokens[i]);
-		}else{
-			rand(); // discard first random number
-			double value = ((double)rand() / (double)RAND_MAX)*10.0;
-			sprintf(successMessage, "%s%.2f ", successMessage, value);
-		}
-	}
-
-	char *returnMessage = malloc(sizeof(char) * 100);
-
-	if(errorAny) {
-		sprintf(returnMessage, "%ssensor(s) %snot installed\n", returnMessage, errorMessage);
-	}else {
-		sprintf(returnMessage, "%s%s\n", returnMessage, successMessage);
-	}
-
-	return returnMessage;
-}
-
-
-// Do the required verifications and remove a sensor from an equipment
-char* _handleRemoveSensor(char** tokens, int count, char* equipmentIdStr) {
-	int equipmentId = atoi(equipmentIdStr);
-	if(equipmentId < EQUIPMENT_RANGE_FROM || equipmentId > EQUIPMENT_RANGE_TO) {
-		return "invalid equipment\n";
-	}
-	equipment *eq = &equipments[equipmentId - 1];
-
-	char *returnMessage = malloc(sizeof(char) * 100);
-
-	if(!validSensors(tokens, count)) return "invalid sensor\n";
-	if(count > 1) return "invalid";
-
-	int sensor = atoi(tokens[0]);
-	if(eq->sensors[sensor - 1]) {
-		_removeSensor(equipmentId, sensor);
-		sprintf(returnMessage, "sensor %s removed\n", tokens[0]);
-	}else{
-		sprintf(returnMessage, "sensor %s does not exist in %s\n", tokens[0], equipmentIdStr);
-	}
-
-	return returnMessage;
-}
-
-// Do the required verifications and list all the sensors attached to an equipment
-char* _handleListSensors(int equipmentId) {
-	if(equipmentId < EQUIPMENT_RANGE_FROM || equipmentId > EQUIPMENT_RANGE_TO) {
-		return "invalid equipment\n";
-	}
-	equipment *eq = &equipments[equipmentId - 1];
-	char *returnMessage = malloc(sizeof(char) * 100);
-	if(eq->sensorCount == 0) return "none\n";
-
-	for(int i = 0; i < eq->sensorCount; i++) {
-		sprintf(returnMessage, "%s0%d ", returnMessage, eq->sensorList[i]);
-	}
-	sprintf(returnMessage, "%s\n", returnMessage);
-	return returnMessage;
-}
 
 // Parse the message and delegate the action to the correct function
-char* _handleMessage(int equipId, char *message) {
+bool _handleMessage(int equipId, char *message) {
 	char **tokens = malloc(sizeof(char *) * MAX_TOKENS);
-	int tc; split(message, tokens, &tc);
+	int tc; split(message, tokens, &tc, " ");
 
 	if(tc < 1) {
-		return "invalid";
+		return -1;
 	}
 
 	char* command = tokens[0];
@@ -258,32 +118,7 @@ char* _handleMessage(int equipId, char *message) {
 		return _handleAddEquipment(equipId);
 	}
 
-
-	// if commmand is "add"
-	// if(strcmp(tokens[1], "sensor") == 0  && strcmp(tokens[tc-2], "in") == 0) {
-	// 	int subtSize = tc - 4;
-	// 	char **subtokens = malloc(sizeof(char *) * subtSize);
-	// 	for(int i = 2; i < tc - 2; i++) {
-	// 		subtokens[i - 2] = tokens[i];
-	// 	}
-
-	// 	if(strcmp(command, "add") == 0) {
-	// 		return _handleAddSensor(subtokens, subtSize, tokens[tc-1]);
-	// 	}else if(strcmp(command, "remove") == 0) {
-	// 		return _handleRemoveSensor(subtokens, subtSize, tokens[tc-1]);
-	// 	}
-	// }else if(strcmp(tokens[0], "list") == 0 && strcmp(tokens[1], "sensors") == 0  && strcmp(tokens[tc-2], "in") == 0 && tc == 4) {
-	// 	return _handleListSensors(atoi(tokens[tc-1]));
-	// }else if(strcmp(tokens[0], "read") == 0 && strcmp(tokens[tc-2], "in") == 0) {
-	// 	int subtSize = tc - 3;
-	// 	char **subtokens = malloc(sizeof(char *) * subtSize);
-	// 	for(int i = 1; i < tc - 2; i++) {
-	// 		subtokens[i - 1] = tokens[i];
-	// 	}
-	// 	return _handleReadSensors(subtokens, subtSize, tokens[tc-1]);
-	// }
-
-	return "invalid";
+	return -1;
 }
 
 
@@ -296,23 +131,28 @@ void *threadConnection(void *arg) {
 		// Receive and print message from client
 		char buffer[MAX_BYTES] = { 0 };
 		int valread = read(tArgs.sockId, buffer, MAX_BYTES);
-		printf("%s", buffer);
+
+		if(valread == 0) {
+			printf("disconnecting...\n");
+			busyThreads[tArgs.threadId] = false;
+			equipments[tArgs.threadId] = false;
+			break;
+			// TODO update all the equipments with this disconnection
+		}
+		
+		printf("(debug) buffer: %s\n", buffer);
 
 		if(strcmp(buffer, "kill\n") == 0) {
 			close(tArgs.sockId);
 			break;
 		}
 
-		char* message = _handleMessage(tArgs.threadId, buffer);
-		if(strcmp(message, "invalid") == 0) {
+		if(!_handleMessage(tArgs.threadId, buffer)) {
 			// If the message is invalid, disconnect the client and wait for a new connection
 			close(tArgs.sockId);
 			printf("disconnecting...\n");
 			busyThreads[tArgs.threadId] = false;
 			break;
-		}else if(strcmp(message, "") != 0) {
-			// Send the message returned by the function to the client
-			send(tArgs.sockId, message, strlen(message), 0);
 		}
 	}
 	int* returnMessage;
@@ -377,8 +217,7 @@ int main(int argc, char const* argv[]) {
 		// Create a new thread of the client
 		int newThreadId = threadId();
 		if(newThreadId == -1) {
-			//TODO: limit exceeded
-			send(new_socket, "limit exceeded TODO: change this\n", strlen("limit exceeded TODO: change this\n"), 0);
+			_sendMessage(ERROR, -1, new_socket, ERR_EQUIPMENT_LIMIT_EXCEEDED, DESTINATION_SOCKET_ID);
 			close(new_socket);
 			continue;
 		}
