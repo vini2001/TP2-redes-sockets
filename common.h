@@ -28,7 +28,7 @@
 // Confirmation codes
 #define SUCCESSFUL_REMOVAL "01"
 
-#define MAX_EQUIPMENTS 5
+#define MAX_EQUIPMENTS 5 // TODO mudar pra 15
 
 
 

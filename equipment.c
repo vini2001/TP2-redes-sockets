@@ -10,6 +10,7 @@
 #define MAX_TOKENS 4
 
 #define CLOSE_CONNECTION_COMMAND "close connection\n"
+#define LIST_EQUIPMENTS_COMMAND "list equipment\n"
 
 #define debug true
 
@@ -125,10 +126,26 @@ void *threadReceiveMessage(void *arg) {
 	return returnMessage;
 }
 
+void _listEquipments() {
+	bool first = true;
+	for(int i = 0; i < MAX_EQUIPMENTS; i++) {
+		if(equipments[i]) {
+			if(!first) printf(" ");
+			printf("%s%d", i < 10 ? "0" : "", i);
+			first = false;
+		}
+	}
+	printf("\n");
+}
+
 bool _prepareCommand(char* command, size_t commandSize) {
 	if(strcmp(command, CLOSE_CONNECTION_COMMAND) == 0) {
 		sprintf(command, "%s %s%d", REQ_REM, thisId < 10 ? "0" : "", thisId);
-	}else{
+	} else if(strcmp(command, LIST_EQUIPMENTS_COMMAND) == 0) {
+		_listEquipments();
+		return false;
+	} else {
+		printf("Invalid command\n");
 		return false;
 	}
 	return true;
@@ -185,11 +202,8 @@ int main(int argc, char const* argv[])
 		size_t bufsize;
 		char *command = malloc(bufsize * sizeof(char));
 		getline(&command, &bufsize, stdin);
-
-		bool valid = _prepareCommand(command, bufsize);
-		if(!valid) {
-			printf("Invalid command\n");
-		}else{
+		bool serverCommand = _prepareCommand(command, bufsize);
+		if(serverCommand) {
 			// strip special characters from message
 			int messageSize;
 			stripUnwantedChars(command, &messageSize);
