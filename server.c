@@ -19,8 +19,7 @@
 #define EQUIPMENT_RANGE_FROM 1
 #define EQUIPMENT_RANGE_TO 4
 
-#define DESTINATION_EQ_ID 1
-#define DESTINATION_SOCKET_ID 2
+#define DESTINATION_EQ_ID -1
 
 struct threadArgs {
 	int sockId;
@@ -56,7 +55,7 @@ void _initEquipments() {
 }
 
 
-void _sendMessage(char* idMsg, int originEqId, int destinationId, char* payload, int destinationType) {
+void _sendMessage(char* idMsg, int originEqId, int destinationEqId, char* payload, int destinationId) {
 	char message[MAX_BYTES] = { 0 };
 	sprintf(message, "%s", idMsg);
 
@@ -65,14 +64,14 @@ void _sendMessage(char* idMsg, int originEqId, int destinationId, char* payload,
 	}
 
 	if(strcmp(idMsg, REQ_INF) == 0 || strcmp(idMsg, RES_INF) == 0 || strcmp(idMsg, ERROR) == 0 || strcmp(idMsg, OK) == 0) {
-		sprintf(message, "%s %s%d", message, destinationId < 10 ? "0" : "", destinationId);
+		sprintf(message, "%s %s%d", message, destinationEqId < 10 ? "0" : "", destinationEqId);
 	}
 
 	if(strcmp(idMsg, RES_ADD) == 0 || strcmp(idMsg, RES_LIST) == 0 || strcmp(idMsg, RES_INF) == 0 || strcmp(idMsg, ERROR) == 0 || strcmp(idMsg, OK) == 0) {
 		sprintf(message, "%s %s", message, payload);
 	}
 	sprintf(message, "%s\n", message);
-	send(destinationType == DESTINATION_EQ_ID ?  threadSocketsMap[destinationId] : destinationId, message, strlen(message), 0);
+	send(destinationId == DESTINATION_EQ_ID ?  threadSocketsMap[destinationEqId] : destinationId, message, strlen(message), 0);
 }
 
 
@@ -102,6 +101,30 @@ bool _handleAddEquipment(int equipId) {
 	return true;
 }
 
+void _broadcastEquipmentRemoved(int toRemove) {
+	for(int i = 0; i < MAX_EQUIPMENTS; i++) {
+		if(busyThreads[i]) {
+			_sendMessage(REQ_REM, toRemove, -1, "", threadSocketsMap[i]);
+		}
+	}
+}
+
+bool _handleRemoveEquipment(int toRemove, int originEqId) {
+	if(!equipments[toRemove]) {
+		_sendMessage(ERROR, -1, -1, ERR_EQUIPMENT_NOT_FOUND, threadSocketsMap[originEqId]);
+	}else{
+		equipments[toRemove] = false;
+		busyThreads[toRemove] = false;
+		_sendMessage(OK, -1, originEqId, SUCCESSFUL_REMOVAL, threadSocketsMap[originEqId]);
+		close(threadSocketsMap[originEqId]);
+		printf("Equipment %d removed\n", toRemove);
+
+		_broadcastEquipmentRemoved(toRemove);
+	}
+
+	return true;
+}
+
 
 // Parse the message and delegate the action to the correct function
 bool _handleMessage(int equipId, char *message) {
@@ -113,9 +136,18 @@ bool _handleMessage(int equipId, char *message) {
 	}
 
 	char* command = tokens[0];
+
+	int subtSize = tc - 1;
+	char **subtokens = malloc(sizeof(char *) * subtSize);
+	for(int i = 1; i < subtSize + 1; i++) {
+		subtokens[i - 1] = tokens[i];
+	}
+
 	// if command is an equipment registering
 	if(strcmp(command, REQ_ADD) == 0) { 
 		return _handleAddEquipment(equipId);
+	} else if(strcmp(command, REQ_REM) == 0) { 
+		return _handleRemoveEquipment(atoi(subtokens[0]), equipId);
 	}
 
 	return -1;
@@ -127,7 +159,7 @@ void *threadConnection(void *arg) {
 	busyThreads[tArgs.threadId] = true;
 	threadSocketsMap[tArgs.threadId] = tArgs.sockId;
 
-	while(true) {
+	while(busyThreads[tArgs.threadId]) {
 		// Receive and print message from client
 		char buffer[MAX_BYTES] = { 0 };
 		int valread = read(tArgs.sockId, buffer, MAX_BYTES);
@@ -136,24 +168,14 @@ void *threadConnection(void *arg) {
 			printf("disconnecting...\n");
 			busyThreads[tArgs.threadId] = false;
 			equipments[tArgs.threadId] = false;
+			close(tArgs.sockId);
+			_broadcastEquipmentRemoved(tArgs.threadId);
 			break;
-			// TODO update all the equipments with this disconnection
 		}
 		
 		printf("(debug) buffer: %s\n", buffer);
 
-		if(strcmp(buffer, "kill\n") == 0) {
-			close(tArgs.sockId);
-			break;
-		}
-
-		if(!_handleMessage(tArgs.threadId, buffer)) {
-			// If the message is invalid, disconnect the client and wait for a new connection
-			close(tArgs.sockId);
-			printf("disconnecting...\n");
-			busyThreads[tArgs.threadId] = false;
-			break;
-		}
+		_handleMessage(tArgs.threadId, buffer);
 	}
 	int* returnMessage;
 	return returnMessage;
@@ -217,7 +239,7 @@ int main(int argc, char const* argv[]) {
 		// Create a new thread of the client
 		int newThreadId = threadId();
 		if(newThreadId == -1) {
-			_sendMessage(ERROR, -1, new_socket, ERR_EQUIPMENT_LIMIT_EXCEEDED, DESTINATION_SOCKET_ID);
+			_sendMessage(ERROR, -1, -1, ERR_EQUIPMENT_LIMIT_EXCEEDED, new_socket);
 			close(new_socket);
 			continue;
 		}

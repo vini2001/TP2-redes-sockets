@@ -9,6 +9,8 @@
 
 #define MAX_TOKENS 4
 
+#define CLOSE_CONNECTION_COMMAND "close connection\n"
+
 #define debug true
 
 int thisId = -1;
@@ -30,6 +32,14 @@ void _handleError(char **tokens, int size) {
 	}
 }
 
+void _handleOk(char **tokens, int size) {
+	char* errorType = tokens[1];
+	if(strcmp(errorType, SUCCESSFUL_REMOVAL) == 0) { 
+		printf("Successful removal\n");
+		exit(0);
+	}
+}
+
 void _handleEquipmenetAdded(char **tokens, int size) {
 	int eqId = atoi(tokens[0]);
 	
@@ -43,6 +53,13 @@ void _handleEquipmenetAdded(char **tokens, int size) {
 	equipments[eqId] = true;
 }
 
+void _handleEquipmentRemoved(char **tokens, int size) {
+	int eqId = atoi(tokens[0]);
+	
+	printf("Equipment %s removed\n", tokens[0]);
+	equipments[eqId] = false;
+}
+
 void _handleCurrentEquipmentList(char **tokens, int size) {
 	char **ids = malloc(sizeof(char *) * MAX_TOKENS);
 	int idCount; split(tokens[0], ids, &idCount, ",");
@@ -50,7 +67,6 @@ void _handleCurrentEquipmentList(char **tokens, int size) {
 	for(int i = 0; i < idCount; i++) {
 		int id = atoi(ids[i]);
 		equipments[id] = true;
-		if(debug) printf("(debug) ceq: %d\n", id);
 	}
 }
 
@@ -75,6 +91,10 @@ void _handleServerMessage(char *message) {
 		_handleCurrentEquipmentList(subtokens, subtSize);
 	} else if(strcmp(commandType, ERROR) == 0) {
 		_handleError(subtokens, subtSize);
+	} else if(strcmp(commandType, OK) == 0) {
+		_handleOk(subtokens, subtSize);
+	} else if(strcmp(commandType, REQ_REM) == 0) {
+		_handleEquipmentRemoved(subtokens, subtSize);
 	}
 }
 
@@ -105,9 +125,13 @@ void *threadReceiveMessage(void *arg) {
 	return returnMessage;
 }
 
-char* _getMessage(char* command, size_t commandSize) {
-
-	return command;
+bool _prepareCommand(char* command, size_t commandSize) {
+	if(strcmp(command, CLOSE_CONNECTION_COMMAND) == 0) {
+		sprintf(command, "%s %s%d", REQ_REM, thisId < 10 ? "0" : "", thisId);
+	}else{
+		return false;
+	}
+	return true;
 }
 
 int main(int argc, char const* argv[])
@@ -162,17 +186,19 @@ int main(int argc, char const* argv[])
 		char *command = malloc(bufsize * sizeof(char));
 		getline(&command, &bufsize, stdin);
 
-		char *message = _getMessage(command, bufsize);
+		bool valid = _prepareCommand(command, bufsize);
+		if(!valid) {
+			printf("Invalid command\n");
+		}else{
+			// strip special characters from message
+			int messageSize;
+			stripUnwantedChars(command, &messageSize);
 
-		// strip special characters from message
-		int messageSize;
-		stripUnwantedChars(message, &messageSize);
+			// TODO: convert command to message
 
-		// TODO: convert command to message
-
-		// send message to server
-		send(sock, message, messageSize, 0);
-		free(message);
+			// send message to server
+			send(sock, command, messageSize, 0);
+		}
 		free(command);
 	}
 	return 0;
