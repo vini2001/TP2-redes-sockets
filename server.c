@@ -29,16 +29,15 @@ typedef struct threadArgs threadArgs;
 
 // Struct to hold the data of an equipment
 
-bool equipments[MAX_EQUIPMENTS];
-int sensorCount = 0;
+bool equipments[MAX_EQUIPMENTS + 1];
 
-pthread_t threads[MAX_EQUIPMENTS];
-bool busyThreads[MAX_EQUIPMENTS];
-int threadSocketsMap[MAX_EQUIPMENTS];
+pthread_t threads[MAX_EQUIPMENTS + 1];
+bool busyThreads[MAX_EQUIPMENTS + 1];
+int threadSocketsMap[MAX_EQUIPMENTS + 1];
 
 int threadId() {
 	int i;
-	for(i = 0; i < MAX_EQUIPMENTS; i++) {
+	for(i = 1; i < MAX_EQUIPMENTS + 1; i++) {
 		if(!busyThreads[i]) {
 			return i;
 		}
@@ -48,7 +47,7 @@ int threadId() {
 
 // Init the equipments without any sensors
 void _initEquipments() {
-	for(int i = 0; i < MAX_EQUIPMENTS; i++) {
+	for(int i = 1; i < MAX_EQUIPMENTS + 1; i++) {
 		equipments[i] = false;
 		busyThreads[i] = false;
 	}
@@ -63,7 +62,7 @@ void _sendMessage(char* idMsg, int originEqId, int destinationEqId, char* payloa
 		sprintf(message, "%s %s%d", message, originEqId < 10 ? "0" : "", originEqId);
 	}
 
-	if(strcmp(idMsg, REQ_INF) == 0 || strcmp(idMsg, RES_INF) == 0 || strcmp(idMsg, ERROR) == 0 || strcmp(idMsg, OK) == 0) {
+	if(strcmp(idMsg, REQ_INF) == 0 || strcmp(idMsg, RES_INF) == 0 || (strcmp(idMsg, ERROR) == 0 && strcmp(payload, ERR_EQUIPMENT_LIMIT_EXCEEDED) != 0) || strcmp(idMsg, OK) == 0) {
 		sprintf(message, "%s %s%d", message, destinationEqId < 10 ? "0" : "", destinationEqId);
 	}
 
@@ -78,7 +77,7 @@ void _sendMessage(char* idMsg, int originEqId, int destinationEqId, char* payloa
 void _sendEqList(int equipId) {
 	bool first = true;
 	char payload[MAX_BYTES] = { 0 };
-	for(int i = 0; i < MAX_EQUIPMENTS; i++) {
+	for(int i = 1; i < MAX_EQUIPMENTS + 1; i++) {
 		if(equipments[i]) {
 			sprintf(payload, "%s%s%d", payload, first ? "" : ",",  i);
 			first = false;
@@ -89,20 +88,21 @@ void _sendEqList(int equipId) {
 
 // Broadcast the added equipment to all the clients
 bool _handleAddEquipment(int equipId) {
-	for(int i = 0; i < MAX_EQUIPMENTS; i++) {
+	for(int i = 1; i < MAX_EQUIPMENTS + 1; i++) {
 		if(!busyThreads[i]) continue;
 		char* addedEquipId = malloc(sizeof(char) * 2);
 		sprintf(addedEquipId, "%s%d", equipId < 10 ? "0" : "", equipId);
 		_sendMessage(RES_ADD, -1, i, addedEquipId, DESTINATION_EQ_ID);
 		free(addedEquipId);
 	}
+	printf("Equipment %s%d added\n", equipId < 10 ? "0" : "", equipId);
 	equipments[equipId] = true;
 	_sendEqList(equipId);
 	return true;
 }
 
 void _broadcastEquipmentRemoved(int toRemove) {
-	for(int i = 0; i < MAX_EQUIPMENTS; i++) {
+	for(int i = 1; i < MAX_EQUIPMENTS + 1; i++) {
 		if(busyThreads[i]) {
 			_sendMessage(REQ_REM, toRemove, -1, "", threadSocketsMap[i]);
 		}
@@ -117,7 +117,7 @@ bool _handleRemoveEquipment(int toRemove, int originEqId) {
 		busyThreads[toRemove] = false;
 		_sendMessage(OK, -1, originEqId, SUCCESSFUL_REMOVAL, threadSocketsMap[originEqId]);
 		close(threadSocketsMap[originEqId]);
-		printf("Equipment %d removed\n", toRemove);
+		printf("Equipment %s%d removed\n", toRemove < 10 ? "0" : "", toRemove);
 
 		_broadcastEquipmentRemoved(toRemove);
 	}
@@ -126,15 +126,15 @@ bool _handleRemoveEquipment(int toRemove, int originEqId) {
 }
 
 bool _handleEquipmentInfo(int originEqId, int destinationEqId, int realEqId) {
-	if(originEqId >= MAX_EQUIPMENTS || !equipments[originEqId]) {
+	if(originEqId > MAX_EQUIPMENTS || !equipments[originEqId]) {
 		_sendMessage(ERROR, originEqId, destinationEqId, ERR_SOURCE_EQUIPMENT_NOT_FOUND, threadSocketsMap[realEqId]);
-		printf("Equipment %d not found\n", originEqId);
+		printf("Equipment %s%d not found\n", originEqId < 10 ? "0" : "", originEqId);
 		return false;
 	}
 
-	if(destinationEqId >= MAX_EQUIPMENTS || !equipments[destinationEqId]) {
+	if(destinationEqId > MAX_EQUIPMENTS || !equipments[destinationEqId]) {
 		_sendMessage(ERROR, originEqId, destinationEqId, ERR_TARGET_EQUIPMENT_NOT_FOUND, threadSocketsMap[realEqId]);
-		printf("Equipment %d not found\n", destinationEqId);
+		printf("Equipment %s%d not found\n", destinationEqId < 10 ? "0" : "", destinationEqId);
 		return false;
 	}
 
@@ -143,13 +143,13 @@ bool _handleEquipmentInfo(int originEqId, int destinationEqId, int realEqId) {
 }
 
 bool _handleResEquipmentInfo(int originEqId, int destinationEqId, char* payload, int realEqId) {
-	if(originEqId >= MAX_EQUIPMENTS || !equipments[originEqId]) {
+	if(originEqId > MAX_EQUIPMENTS || !equipments[originEqId]) {
 		_sendMessage(ERROR, originEqId, destinationEqId, ERR_SOURCE_EQUIPMENT_NOT_FOUND, threadSocketsMap[realEqId]);
 		printf("Equipment %d not found\n", originEqId);
 		return false;
 	}
 
-	if(destinationEqId >= MAX_EQUIPMENTS || !equipments[destinationEqId]) {
+	if(destinationEqId > MAX_EQUIPMENTS || !equipments[destinationEqId]) {
 		_sendMessage(ERROR, originEqId, destinationEqId, ERR_TARGET_EQUIPMENT_NOT_FOUND, threadSocketsMap[realEqId]);
 		printf("Equipment %d not found\n", destinationEqId);
 		return false;
@@ -204,7 +204,7 @@ void *threadConnection(void *arg) {
 		int valread = read(tArgs.sockId, buffer, MAX_BYTES);
 
 		if(valread == 0) {
-			printf("disconnecting...\n");
+			printf("Equipment %s%d removed\n", tArgs.threadId < 10 ? "0" : "", tArgs.threadId);
 			busyThreads[tArgs.threadId] = false;
 			equipments[tArgs.threadId] = false;
 			close(tArgs.sockId);

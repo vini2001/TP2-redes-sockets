@@ -16,7 +16,7 @@
 int thisId = -1;
 bool idDefined = false;
 
-bool equipments[MAX_EQUIPMENTS];
+bool equipments[MAX_EQUIPMENTS + 1];
 
 int sock = 0;
 
@@ -42,7 +42,7 @@ void _sendMessage(char* idMsg, int originEqId, int destinationId, char* payload)
 }
 
 void _handleError(char **tokens, int size) {
-	char* errorType = tokens[1];
+	char* errorType = tokens[size-1];
 	if(strcmp(errorType, ERR_EQUIPMENT_NOT_FOUND) == 0) { 
 		printf("Equipment not found\n");
 	} else if(strcmp(errorType, ERR_SOURCE_EQUIPMENT_NOT_FOUND) == 0) { 
@@ -88,7 +88,6 @@ void _handleRequestInfo(char **tokens, int size) {
 	
 	printf("requested information\n");
 
-	rand(); // discard first random number
 	float value = ((float)rand() / (float)RAND_MAX)*10.0;
 	char stringValue[5] = "00.00";
 	sprintf(stringValue, "%.2f", value);
@@ -175,8 +174,8 @@ void *threadReceiveMessage(void *arg) {
 
 void _listEquipments() {
 	bool first = true;
-	for(int i = 0; i < MAX_EQUIPMENTS; i++) {
-		if(equipments[i]) {
+	for(int i = 1; i < MAX_EQUIPMENTS + 1; i++) {
+		if(equipments[i] && i != thisId) {
 			if(!first) printf(" ");
 			printf("%s%d", i < 10 ? "0" : "", i);
 			first = false;
