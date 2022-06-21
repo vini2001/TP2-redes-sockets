@@ -11,14 +11,35 @@
 
 #define CLOSE_CONNECTION_COMMAND "close connection\n"
 #define LIST_EQUIPMENTS_COMMAND "list equipment\n"
-
-#define debug true
+#define REQUEST_INFO_COMMAND "request information from"
 
 int thisId = -1;
 bool idDefined = false;
 
 bool equipments[MAX_EQUIPMENTS];
 
+int sock = 0;
+
+
+void _sendMessage(char* idMsg, int originEqId, int destinationId, char* payload) {
+	char message[MAX_BYTES] = { 0 };
+	sprintf(message, "%s", idMsg);
+
+	if(strcmp(idMsg, REQ_REM) == 0 || strcmp(idMsg, REQ_INF) == 0 || strcmp(idMsg, RES_INF) == 0) {
+		sprintf(message, "%s %s%d", message, originEqId < 10 ? "0" : "", originEqId);
+	}
+
+	if(strcmp(idMsg, REQ_INF) == 0 || strcmp(idMsg, RES_INF) == 0) {
+		sprintf(message, "%s %s%d", message, destinationId < 10 ? "0" : "", destinationId);
+	}
+
+	if(strcmp(idMsg, RES_INF) == 0) {
+		sprintf(message, "%s %s", message, payload);
+	}
+
+	sprintf(message, "%s\n", message);
+	send(sock, message, strlen(message), 0);
+}
 
 void _handleError(char **tokens, int size) {
 	char* errorType = tokens[1];
@@ -61,6 +82,26 @@ void _handleEquipmentRemoved(char **tokens, int size) {
 	equipments[eqId] = false;
 }
 
+void _handleRequestInfo(char **tokens, int size) {
+	int originId = atoi(tokens[0]);
+	int destinationId = atoi(tokens[1]);
+	
+	printf("requested information\n");
+
+	rand(); // discard first random number
+	float value = ((float)rand() / (float)RAND_MAX)*10.0;
+	char stringValue[5] = "00.00";
+	sprintf(stringValue, "%.2f", value);
+	_sendMessage(RES_INF, originId, destinationId, stringValue);
+}
+
+void _handleRequestResInfo(char **tokens, int size) {
+	char* destinationId = tokens[1];
+	char* payload = tokens[2];
+	
+	printf("Value from %s: %s\n", destinationId, payload);
+}
+
 void _handleCurrentEquipmentList(char **tokens, int size) {
 	char **ids = malloc(sizeof(char *) * MAX_TOKENS);
 	int idCount; split(tokens[0], ids, &idCount, ",");
@@ -96,7 +137,13 @@ void _handleServerMessage(char *message) {
 		_handleOk(subtokens, subtSize);
 	} else if(strcmp(commandType, REQ_REM) == 0) {
 		_handleEquipmentRemoved(subtokens, subtSize);
+	} else if(strcmp(commandType, REQ_INF) == 0) {
+		_handleRequestInfo(subtokens, subtSize);
+	} else if(strcmp(commandType, RES_INF) == 0) {
+		_handleRequestResInfo(subtokens, subtSize);
 	}
+	free(tokens);
+	free(subtokens);
 }
 
 void *threadReceiveMessage(void *arg) {
@@ -138,17 +185,28 @@ void _listEquipments() {
 	printf("\n");
 }
 
-bool _prepareCommand(char* command, size_t commandSize) {
-	if(strcmp(command, CLOSE_CONNECTION_COMMAND) == 0) {
-		sprintf(command, "%s %s%d", REQ_REM, thisId < 10 ? "0" : "", thisId);
-	} else if(strcmp(command, LIST_EQUIPMENTS_COMMAND) == 0) {
+void _executeCommand(char* command, size_t commandSize) {
+	if(strcmp(command, LIST_EQUIPMENTS_COMMAND) == 0) {
 		_listEquipments();
-		return false;
+		return;
+	}
+
+	if(strcmp(command, CLOSE_CONNECTION_COMMAND) == 0) {
+		_sendMessage(REQ_REM, thisId, -1, "");
+		return;
+	}
+
+	if(strstr(command, REQUEST_INFO_COMMAND) != NULL) {
+		char **parts = malloc(sizeof(char *) * 4);
+		int partsCount; split(command, parts, &partsCount, " ");
+		char* requestInfEqId = parts[partsCount-1];
+		_sendMessage(REQ_INF, thisId, atoi(requestInfEqId), "");
+		free(parts);
 	} else {
 		printf("Invalid command\n");
-		return false;
 	}
-	return true;
+
+	return;
 }
 
 int main(int argc, char const* argv[])
@@ -159,8 +217,6 @@ int main(int argc, char const* argv[])
 		return 1;
 	}
 	int protocol =AF_INET;
-
-	int sock = 0;
 
 	struct sockaddr_storage addServerStorage;
   	memset(&addServerStorage, 0, sizeof(addServerStorage));
@@ -194,25 +250,13 @@ int main(int argc, char const* argv[])
 	pthread_t thread;
 	pthread_create(&thread, NULL, threadReceiveMessage, (void *)&sock);
 
-	char *message = REQ_ADD;
-	int messageSize = sizeof(message);
-	send(sock, message, messageSize, 0);
+	_sendMessage(REQ_ADD, -1, -1, "");
 
 	while(true) {
 		size_t bufsize;
 		char *command = malloc(bufsize * sizeof(char));
 		getline(&command, &bufsize, stdin);
-		bool serverCommand = _prepareCommand(command, bufsize);
-		if(serverCommand) {
-			// strip special characters from message
-			int messageSize;
-			stripUnwantedChars(command, &messageSize);
-
-			// TODO: convert command to message
-
-			// send message to server
-			send(sock, command, messageSize, 0);
-		}
+		_executeCommand(command, bufsize);
 		free(command);
 	}
 	return 0;

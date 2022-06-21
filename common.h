@@ -5,6 +5,8 @@
 #include <ctype.h>
 #include <pthread.h>
 
+#define debug false
+
 // Control Messages
 #define REQ_ADD "01"
 #define REQ_REM "02"
@@ -76,20 +78,4 @@ void split(char *message, char **tokens, int *count, char* splitChar) {
 	// remove \n from last token
 	tokens[c-1] = strtok(tokens[c-1], "\n");
 	*count = c;
-}
-
-
-// Remove special chars, string terminator (\0) and keep only numbers, letters, spaces and \n
-void stripUnwantedChars(char *data, int *size) {
-    unsigned long i = 0;
-    unsigned long x = 0;
-    char c;
-
-    while ((c = data[i++]) != '\0') {
-        if (isalnum(c) || c == '\n' || c == ' ') {
-            data[x++] = c;
-        }
-    }
-	data[x++] = '\0';
-    *size = x;
 }

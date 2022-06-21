@@ -125,6 +125,40 @@ bool _handleRemoveEquipment(int toRemove, int originEqId) {
 	return true;
 }
 
+bool _handleEquipmentInfo(int originEqId, int destinationEqId, int realEqId) {
+	if(originEqId >= MAX_EQUIPMENTS || !equipments[originEqId]) {
+		_sendMessage(ERROR, originEqId, destinationEqId, ERR_SOURCE_EQUIPMENT_NOT_FOUND, threadSocketsMap[realEqId]);
+		printf("Equipment %d not found\n", originEqId);
+		return false;
+	}
+
+	if(destinationEqId >= MAX_EQUIPMENTS || !equipments[destinationEqId]) {
+		_sendMessage(ERROR, originEqId, destinationEqId, ERR_TARGET_EQUIPMENT_NOT_FOUND, threadSocketsMap[realEqId]);
+		printf("Equipment %d not found\n", destinationEqId);
+		return false;
+	}
+
+	_sendMessage(REQ_INF, originEqId, destinationEqId, "", DESTINATION_EQ_ID);
+	return true;
+}
+
+bool _handleResEquipmentInfo(int originEqId, int destinationEqId, char* payload, int realEqId) {
+	if(originEqId >= MAX_EQUIPMENTS || !equipments[originEqId]) {
+		_sendMessage(ERROR, originEqId, destinationEqId, ERR_SOURCE_EQUIPMENT_NOT_FOUND, threadSocketsMap[realEqId]);
+		printf("Equipment %d not found\n", originEqId);
+		return false;
+	}
+
+	if(destinationEqId >= MAX_EQUIPMENTS || !equipments[destinationEqId]) {
+		_sendMessage(ERROR, originEqId, destinationEqId, ERR_TARGET_EQUIPMENT_NOT_FOUND, threadSocketsMap[realEqId]);
+		printf("Equipment %d not found\n", destinationEqId);
+		return false;
+	}
+
+	_sendMessage(RES_INF, originEqId, destinationEqId, payload, threadSocketsMap[originEqId]);
+	return true;
+}
+
 
 // Parse the message and delegate the action to the correct function
 bool _handleMessage(int equipId, char *message) {
@@ -148,8 +182,13 @@ bool _handleMessage(int equipId, char *message) {
 		return _handleAddEquipment(equipId);
 	} else if(strcmp(command, REQ_REM) == 0) { 
 		return _handleRemoveEquipment(atoi(subtokens[0]), equipId);
+	} else if(strcmp(command, REQ_INF) == 0) { 
+		return _handleEquipmentInfo(atoi(subtokens[0]), atoi(subtokens[1]), equipId);
+	} else if(strcmp(command, RES_INF) == 0) { 
+		return _handleResEquipmentInfo(atoi(subtokens[0]), atoi(subtokens[1]), subtokens[2], equipId);
 	}
 
+	free(subtokens);
 	return -1;
 }
 
@@ -173,7 +212,9 @@ void *threadConnection(void *arg) {
 			break;
 		}
 		
-		printf("(debug) buffer: %s\n", buffer);
+		if(debug) {
+			printf("(debug) buffer: %s\n", buffer);
+		}
 
 		_handleMessage(tArgs.threadId, buffer);
 	}
