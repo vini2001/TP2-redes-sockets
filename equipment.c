@@ -91,7 +91,7 @@ void _handleRequestInfo(char **tokens, int size) {
 	float value = ((float)rand() / (float)RAND_MAX)*10.0;
 	char stringValue[5] = "00.00";
 	sprintf(stringValue, "%.2f", value);
-	_sendMessage(RES_INF, originId, destinationId, stringValue);
+	_sendMessage(RES_INF, destinationId, originId, stringValue);
 }
 
 void _handleRequestResInfo(char **tokens, int size) {

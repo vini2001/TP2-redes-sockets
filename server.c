@@ -11,10 +11,6 @@
 
 #define MAX_TOKENS 10
 
-// Valid sensor id range
-#define SENSOR_RANGE_FROM 1
-#define SENSOR_RANGE_TO 4
-
 // Valid equipment id range
 #define EQUIPMENT_RANGE_FROM 1
 #define EQUIPMENT_RANGE_TO 4
@@ -27,14 +23,19 @@ struct threadArgs {
 };
 typedef struct threadArgs threadArgs;
 
-// Struct to hold the data of an equipment
-
+// Array to hold the equipments that have been connected and accepted into the network
 bool equipments[MAX_EQUIPMENTS + 1];
 
+// Array of threads to refence the current created threads
 pthread_t threads[MAX_EQUIPMENTS + 1];
+
+// Array that holds which position is available for a new thread/connection and which are busy
 bool busyThreads[MAX_EQUIPMENTS + 1];
+
+// Maps a thread/equipment id to a socket id
 int threadSocketsMap[MAX_EQUIPMENTS + 1];
 
+// Find the first id that is not in use (if none is available, return -1)
 int threadId() {
 	int i;
 	for(i = 1; i < MAX_EQUIPMENTS + 1; i++) {
@@ -155,19 +156,15 @@ bool _handleResEquipmentInfo(int originEqId, int destinationEqId, char* payload,
 		return false;
 	}
 
-	_sendMessage(RES_INF, originEqId, destinationEqId, payload, threadSocketsMap[originEqId]);
+	_sendMessage(RES_INF, originEqId, destinationEqId, payload, DESTINATION_EQ_ID);
 	return true;
 }
 
 
 // Parse the message and delegate the action to the correct function
-bool _handleMessage(int equipId, char *message) {
+void _handleMessage(int equipId, char *message) {
 	char **tokens = malloc(sizeof(char *) * MAX_TOKENS);
 	int tc; split(message, tokens, &tc, " ");
-
-	if(tc < 1) {
-		return -1;
-	}
 
 	char* command = tokens[0];
 
@@ -179,17 +176,17 @@ bool _handleMessage(int equipId, char *message) {
 
 	// if command is an equipment registering
 	if(strcmp(command, REQ_ADD) == 0) { 
-		return _handleAddEquipment(equipId);
+		_handleAddEquipment(equipId);
 	} else if(strcmp(command, REQ_REM) == 0) { 
-		return _handleRemoveEquipment(atoi(subtokens[0]), equipId);
+		_handleRemoveEquipment(atoi(subtokens[0]), equipId);
 	} else if(strcmp(command, REQ_INF) == 0) { 
-		return _handleEquipmentInfo(atoi(subtokens[0]), atoi(subtokens[1]), equipId);
+		_handleEquipmentInfo(atoi(subtokens[0]), atoi(subtokens[1]), equipId);
 	} else if(strcmp(command, RES_INF) == 0) { 
-		return _handleResEquipmentInfo(atoi(subtokens[0]), atoi(subtokens[1]), subtokens[2], equipId);
+		_handleResEquipmentInfo(atoi(subtokens[0]), atoi(subtokens[1]), subtokens[2], equipId);
 	}
 
 	free(subtokens);
-	return -1;
+	return;
 }
 
 
