@@ -26,11 +26,11 @@ void _sendMessage(char* idMsg, int originEqId, int destinationId, char* payload)
 	sprintf(message, "%s", idMsg);
 
 	if(strcmp(idMsg, REQ_REM) == 0 || strcmp(idMsg, REQ_INF) == 0 || strcmp(idMsg, RES_INF) == 0) {
-		sprintf(message, "%s %s%d", message, originEqId < 10 ? "0" : "", originEqId);
+		sprintf(message, "%s %s%d", message, originEqId < 10 ? "0" : "", (short)originEqId);
 	}
 
 	if(strcmp(idMsg, REQ_INF) == 0 || strcmp(idMsg, RES_INF) == 0) {
-		sprintf(message, "%s %s%d", message, destinationId < 10 ? "0" : "", destinationId);
+		sprintf(message, "%s %s%d", message, destinationId < 10 ? "0" : "", (short)destinationId);
 	}
 
 	if(strcmp(idMsg, RES_INF) == 0) {
@@ -210,6 +210,9 @@ void _executeCommand(char* command, size_t commandSize) {
 
 int main(int argc, char const* argv[])
 {
+
+	// init rand seed
+	srand(time(NULL));
 
 	Parameters *p = malloc(sizeof(Parameters));
 	if(!initProgram(p, true, argc, argv)) {
