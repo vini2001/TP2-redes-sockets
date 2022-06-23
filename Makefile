@@ -1,6 +1,6 @@
 OBJS = server.c equipment.c common.h
 
-CC = gcc
+CC = gcc -pthread
 
 all : $(OBJS) serverP equipmentP
 
