@@ -26,11 +26,11 @@ void _sendMessage(char* idMsg, int originEqId, int destinationId, char* payload)
 	sprintf(message, "%s", idMsg);
 
 	if(strcmp(idMsg, REQ_REM) == 0 || strcmp(idMsg, REQ_INF) == 0 || strcmp(idMsg, RES_INF) == 0) {
-		sprintf(message, "%s %s%d", message, originEqId < 10 ? "0" : "", (short)originEqId);
+		sprintf(message, "%s %s%d", message, originEqId < 10 ? "0" : "", originEqId);
 	}
 
 	if(strcmp(idMsg, REQ_INF) == 0 || strcmp(idMsg, RES_INF) == 0) {
-		sprintf(message, "%s %s%d", message, destinationId < 10 ? "0" : "", (short)destinationId);
+		sprintf(message, "%s %s%d", message, destinationId < 10 ? "0" : "", destinationId);
 	}
 
 	if(strcmp(idMsg, RES_INF) == 0) {

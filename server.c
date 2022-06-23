@@ -60,11 +60,11 @@ void _sendMessage(char* idMsg, int originEqId, int destinationEqId, char* payloa
 	sprintf(message, "%s", idMsg);
 
 	if(strcmp(idMsg, REQ_REM) == 0 || strcmp(idMsg, REQ_INF) == 0 || strcmp(idMsg, RES_INF) == 0) {
-		sprintf(message, "%s %s%d", message, originEqId < 10 ? "0" : "", (short)originEqId);
+		sprintf(message, "%s %s%d", message, originEqId < 10 ? "0" : "", originEqId);
 	}
 
 	if(strcmp(idMsg, REQ_INF) == 0 || strcmp(idMsg, RES_INF) == 0 || (strcmp(idMsg, ERROR) == 0 && strcmp(payload, ERR_EQUIPMENT_LIMIT_EXCEEDED) != 0) || strcmp(idMsg, OK) == 0) {
-		sprintf(message, "%s %s%d", message, destinationEqId < 10 ? "0" : "", (short)destinationEqId);
+		sprintf(message, "%s %s%d", message, destinationEqId < 10 ? "0" : "", destinationEqId);
 	}
 
 	if(strcmp(idMsg, RES_ADD) == 0 || strcmp(idMsg, RES_LIST) == 0 || strcmp(idMsg, RES_INF) == 0 || strcmp(idMsg, ERROR) == 0 || strcmp(idMsg, OK) == 0) {
@@ -80,7 +80,7 @@ void _sendEqList(int equipId) {
 	char payload[MAX_BYTES] = { 0 };
 	for(int i = 1; i < MAX_EQUIPMENTS + 1; i++) {
 		if(equipments[i]) {
-			sprintf(payload, "%s%s%d", payload, first ? "" : ",",  (short)i);
+			sprintf(payload, "%s%s%d", payload, first ? "" : ",",  i);
 			first = false;
 		}
 	}
@@ -92,7 +92,7 @@ bool _handleAddEquipment(int equipId) {
 	for(int i = 1; i < MAX_EQUIPMENTS + 1; i++) {
 		if(!busyThreads[i]) continue;
 		char* addedEquipId = malloc(sizeof(char) * 2);
-		sprintf(addedEquipId, "%s%d", equipId < 10 ? "0" : "", (short)equipId);
+		sprintf(addedEquipId, "%s%d", equipId < 10 ? "0" : "", equipId);
 		_sendMessage(RES_ADD, -1, i, addedEquipId, DESTINATION_EQ_ID);
 		free(addedEquipId);
 	}
