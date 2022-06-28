@@ -80,7 +80,7 @@ void _sendEqList(int equipId) {
 	char payload[MAX_BYTES] = { 0 };
 	for(int i = 1; i < MAX_EQUIPMENTS + 1; i++) {
 		if(equipments[i]) {
-			sprintf(payload, "%s%s%d", payload, first ? "" : ",",  i);
+			sprintf(payload, "%s%s%s%d", payload, first ? "" : ",",  i < 10 ? "0" : "", i);
 			first = false;
 		}
 	}
