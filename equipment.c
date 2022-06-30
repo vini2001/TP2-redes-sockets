@@ -10,8 +10,8 @@
 /// The number of position allocated to the split array of a message
 #define MAX_TOKENS 20
 
-#define CLOSE_CONNECTION_COMMAND "close connection\n"
-#define LIST_EQUIPMENTS_COMMAND "list equipment\n"
+#define CLOSE_CONNECTION_COMMAND "close connection"
+#define LIST_EQUIPMENTS_COMMAND "list equipment"
 #define REQUEST_INFO_COMMAND "request information from"
 
 /// Store this equipment's id
@@ -260,12 +260,12 @@ void _listEquipments() {
  * @param commandSize : The size of the command string
  */
 void _executeCommand(char* command, size_t commandSize) {
-	if(strcmp(command, LIST_EQUIPMENTS_COMMAND) == 0) {
+	if(strstr(command, LIST_EQUIPMENTS_COMMAND) != NULL) {
 		_listEquipments();
 		return;
 	}
 
-	if(strcmp(command, CLOSE_CONNECTION_COMMAND) == 0) {
+	if(strstr(command, CLOSE_CONNECTION_COMMAND) != NULL) {
 		_sendMessage(REQ_REM, thisId, -1, "");
 		return;
 	}
