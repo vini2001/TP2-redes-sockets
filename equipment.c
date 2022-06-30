@@ -7,21 +7,34 @@
 #include <stdlib.h>
 #include "common.h"
 
-#define MAX_TOKENS 4
+/// The number of position allocated to the split array of a message
+#define MAX_TOKENS 20
 
 #define CLOSE_CONNECTION_COMMAND "close connection\n"
 #define LIST_EQUIPMENTS_COMMAND "list equipment\n"
 #define REQUEST_INFO_COMMAND "request information from"
 
+/// Store this equipment's id
 int thisId = -1;
+
+/// Store whether an id has been assigned to this equipment
 bool idDefined = false;
 
+/// Store which equipments are connected to the server
 bool equipments[MAX_EQUIPMENTS + 1];
 
+/// Id of the socket connection to communicate with the server
 int sock = 0;
 
-
-void _sendMessage(char* idMsg, int originEqId, int destinationId, char* payload) {
+/**
+ * Organize and send a message to the server.
+ *
+ * @param idMsg: The ID of the message type
+ * @param originEqId: The origin equipment id, acordding to the message table on the specs
+ * @param destinationEqId: The destination equipment id, acordding to the message table on the specs
+ * @param payload: The payload of the message, acordding to the message table on the specs
+ **/
+void _sendMessage(char* idMsg, int originEqId, int destinationEqId, char* payload) {
 	char message[MAX_BYTES] = { 0 };
 	sprintf(message, "%s", idMsg);
 
@@ -30,7 +43,7 @@ void _sendMessage(char* idMsg, int originEqId, int destinationId, char* payload)
 	}
 
 	if(strcmp(idMsg, REQ_INF) == 0 || strcmp(idMsg, RES_INF) == 0) {
-		sprintf(message, "%s %s%d", message, destinationId < 10 ? "0" : "", destinationId);
+		sprintf(message, "%s %s%d", message, destinationEqId < 10 ? "0" : "", destinationEqId);
 	}
 
 	if(strcmp(idMsg, RES_INF) == 0) {
@@ -41,6 +54,12 @@ void _sendMessage(char* idMsg, int originEqId, int destinationId, char* payload)
 	send(sock, message, strlen(message), 0);
 }
 
+/**
+ * Handle an error message
+ * 
+ * @param tokens : The array of tokens of the message
+ * @param size : The size of the array of tokens
+ */
 void _handleError(char **tokens, int size) {
 	char* errorType = tokens[size-1];
 	if(strcmp(errorType, ERR_EQUIPMENT_NOT_FOUND) == 0) { 
@@ -54,6 +73,12 @@ void _handleError(char **tokens, int size) {
 	}
 }
 
+/**
+ * Handle an OK message from the server
+ * 
+ * @param tokens : The array of tokens of the message
+ * @param size : The size of the array of tokens
+ */
 void _handleOk(char **tokens, int size) {
 	char* errorType = tokens[1];
 	if(strcmp(errorType, SUCCESSFUL_REMOVAL) == 0) { 
@@ -62,6 +87,12 @@ void _handleOk(char **tokens, int size) {
 	}
 }
 
+/**
+ * Handle the message that is received when another equipment connects to the server
+ * 
+ * @param tokens : The array of tokens of the message (first position should be the added equipment's id)
+ * @param size : The size of the array of tokens
+ */
 void _handleEquipmenetAdded(char **tokens, int size) {
 	int eqId = atoi(tokens[0]);
 	
@@ -75,6 +106,12 @@ void _handleEquipmenetAdded(char **tokens, int size) {
 	equipments[eqId] = true;
 }
 
+/**
+ * Handle the message that is received when another equipment is removed or disconnected from the server
+ * 
+ * @param tokens : The array of tokens of the message (first position should be the removed equipment's id)
+ * @param size : The size of the array of tokens
+ */
 void _handleEquipmentRemoved(char **tokens, int size) {
 	int eqId = atoi(tokens[0]);
 	
@@ -82,6 +119,12 @@ void _handleEquipmentRemoved(char **tokens, int size) {
 	equipments[eqId] = false;
 }
 
+/**
+ * Handle the message that is received when another equipment requests information from this equipment
+ * 
+ * @param tokens : The array of tokens of the message (first position should be the requester's id and the second position should be the requested equipment's id = this one)
+ * @param size : The size of the array of tokens
+ */
 void _handleRequestInfo(char **tokens, int size) {
 	int originId = atoi(tokens[0]);
 	int destinationId = atoi(tokens[1]);
@@ -94,6 +137,13 @@ void _handleRequestInfo(char **tokens, int size) {
 	_sendMessage(RES_INF, destinationId, originId, stringValue);
 }
 
+
+/**
+ * Handle the message that is received when this equipment receives the requested information from another equipment
+ * 
+ * @param tokens : The array of tokens of the message (second position should be the id of the responding equipment and the third the value of the information)
+ * @param size : The size of the array of tokens
+ */
 void _handleRequestResInfo(char **tokens, int size) {
 	char* destinationId = tokens[1];
 	char* payload = tokens[2];
@@ -101,6 +151,12 @@ void _handleRequestResInfo(char **tokens, int size) {
 	printf("Value from %s: %s\n", destinationId, payload);
 }
 
+/**
+ * Handle the message that containing a list of all equipments connected to the server (fired as soon as this equipment is added)
+ * 
+ * @param tokens : The array of tokens of the message (first position should be a string containing the list of connected equipments separated by a comma(,))
+ * @param size : The size of the array of tokens
+ */
 void _handleCurrentEquipmentList(char **tokens, int size) {
 	char **ids = malloc(sizeof(char *) * MAX_TOKENS);
 	int idCount; split(tokens[0], ids, &idCount, ",");
@@ -111,6 +167,11 @@ void _handleCurrentEquipmentList(char **tokens, int size) {
 	}
 }
 
+/**
+ * Handle the messages received from the server
+ * 
+ * @param message : A string representing the encoded message
+ */
 void _handleServerMessage(char *message) {
 	if(debug) {
 		printf("(debug) Message Received: %s\n", message);
@@ -145,6 +206,11 @@ void _handleServerMessage(char *message) {
 	free(subtokens);
 }
 
+/**
+ * A thread that listens to the server and handles the messages received
+ * 
+ * @param arg {int*} : The id of the socket to listen to
+ */
 void *threadReceiveMessage(void *arg) {
 	int sock = *((int *)arg);
 	
@@ -172,6 +238,9 @@ void *threadReceiveMessage(void *arg) {
 	return returnMessage;
 }
 
+/**
+ * List all the connected equipments
+ */
 void _listEquipments() {
 	bool first = true;
 	for(int i = 1; i < MAX_EQUIPMENTS + 1; i++) {
@@ -184,6 +253,12 @@ void _listEquipments() {
 	printf("\n");
 }
 
+/**
+ * Match the typed command with the corresponding function
+ * 
+ * @param command : The command to match
+ * @param commandSize : The size of the command string
+ */
 void _executeCommand(char* command, size_t commandSize) {
 	if(strcmp(command, LIST_EQUIPMENTS_COMMAND) == 0) {
 		_listEquipments();

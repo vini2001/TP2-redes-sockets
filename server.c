@@ -9,12 +9,14 @@
 #include "common.h"
 #include <arpa/inet.h>
 
-#define MAX_TOKENS 10
+/// The number of position allocated to the split array of a message
+#define MAX_TOKENS 20
 
-// Valid equipment id range
+/// Valid equipment id range
 #define EQUIPMENT_RANGE_FROM 1
 #define EQUIPMENT_RANGE_TO 4
 
+/// Indicates the _sendMessage destinationEqId should be used to find the socket id
 #define DESTINATION_EQ_ID -1
 
 struct threadArgs {
@@ -23,19 +25,19 @@ struct threadArgs {
 };
 typedef struct threadArgs threadArgs;
 
-// Array to hold the equipments that have been connected and accepted into the network
+/// Array to hold the equipments that have been connected and accepted into the network
 bool equipments[MAX_EQUIPMENTS + 1];
 
-// Array of threads to refence the current created threads
+/// Array of threads to refence the current created threads
 pthread_t threads[MAX_EQUIPMENTS + 1];
 
-// Array that holds which position is available for a new thread/connection and which are busy
+/// Array that holds which position is available for a new thread/connection and which are busy
 bool busyThreads[MAX_EQUIPMENTS + 1];
 
-// Maps a thread/equipment id to a socket id
+/// Maps a thread/equipment id to a socket id
 int threadSocketsMap[MAX_EQUIPMENTS + 1];
 
-// Find the first id that is not in use (if none is available, return -1)
+/// Find the first id that is not in use (if none is available, return -1)
 int threadId() {
 	int i;
 	for(i = 1; i < MAX_EQUIPMENTS + 1; i++) {
@@ -46,7 +48,7 @@ int threadId() {
 	return -1;
 }
 
-// Init the equipments without any sensors
+/// Init the equipments without any sensors
 void _initEquipments() {
 	for(int i = 1; i < MAX_EQUIPMENTS + 1; i++) {
 		equipments[i] = false;
@@ -55,6 +57,13 @@ void _initEquipments() {
 }
 
 
+/**
+ * @param idMsg: The ID of the message type
+ * @param originEqId: The origin equipment id, acordding to the message table on the specs
+ * @param destinationEqId: The destination equipment id, acordding to the message table on the specs
+ * @param payload: The payload of the message, acordding to the message table on the specs
+ * @param destinationId: The socket id the message will be sent to. If DESTINATION_EQ_ID is passed, the socket id will be found from the destinationEqId
+ **/
 void _sendMessage(char* idMsg, int originEqId, int destinationEqId, char* payload, int destinationId) {
 	char message[MAX_BYTES] = { 0 };
 	sprintf(message, "%s", idMsg);
@@ -74,7 +83,11 @@ void _sendMessage(char* idMsg, int originEqId, int destinationEqId, char* payloa
 	send(destinationId == DESTINATION_EQ_ID ?  threadSocketsMap[destinationEqId] : destinationId, message, strlen(message), 0);
 }
 
-
+/**
+ * Send equipment list to equipId 
+ * 
+ * @param equipId: The equipment that will receive the message
+ */
 void _sendEqList(int equipId) {
 	bool first = true;
 	char payload[MAX_BYTES] = { 0 };
@@ -87,8 +100,12 @@ void _sendEqList(int equipId) {
 	_sendMessage(RES_LIST, -1, equipId, payload, DESTINATION_EQ_ID);
 }
 
-// Broadcast the added equipment to all the clients
-bool _handleAddEquipment(int equipId) {
+/**
+ * Broadcast the added equipment to all the clients
+ * 
+ * @param equipId : the equipment that was just added
+ */
+void _handleAddEquipment(int equipId) {
 	for(int i = 1; i < MAX_EQUIPMENTS + 1; i++) {
 		if(!busyThreads[i]) continue;
 		char* addedEquipId = malloc(sizeof(char) * 2);
@@ -99,9 +116,13 @@ bool _handleAddEquipment(int equipId) {
 	printf("Equipment %s%d added\n", equipId < 10 ? "0" : "", equipId);
 	equipments[equipId] = true;
 	_sendEqList(equipId);
-	return true;
 }
 
+/**
+ * Broadcast the removed equipment to all the clients
+ * 
+ * @param toRemove : the equipment that was just removed
+ */
 void _broadcastEquipmentRemoved(int toRemove) {
 	for(int i = 1; i < MAX_EQUIPMENTS + 1; i++) {
 		if(busyThreads[i]) {
@@ -110,7 +131,13 @@ void _broadcastEquipmentRemoved(int toRemove) {
 	}
 }
 
-bool _handleRemoveEquipment(int toRemove, int originEqId) {
+/**
+ * Handle a equipment removal request
+ * 
+ * @param toRemove : the equipment that will be removed
+ * @param originEqId : the equipment that requested the removal (should match toRemove)
+ */
+_handleRemoveEquipment(int toRemove, int originEqId) {
 	if(!equipments[toRemove]) {
 		_sendMessage(ERROR, -1, -1, ERR_EQUIPMENT_NOT_FOUND, threadSocketsMap[originEqId]);
 	}else{
@@ -122,10 +149,15 @@ bool _handleRemoveEquipment(int toRemove, int originEqId) {
 
 		_broadcastEquipmentRemoved(toRemove);
 	}
-
-	return true;
 }
 
+/**
+ * Handle a equipment information request
+ * 
+ * @param originEqId : the equipment that requested the information
+ * @param destinationEqId : the equipment that the information is requested from
+ * @param realEqId : the equipment id that the server identified as the requester (should match originEqId - a validation would be needed for security purposes)
+ */
 bool _handleEquipmentInfo(int originEqId, int destinationEqId, int realEqId) {
 	if(originEqId > MAX_EQUIPMENTS || !equipments[originEqId]) {
 		_sendMessage(ERROR, originEqId, destinationEqId, ERR_SOURCE_EQUIPMENT_NOT_FOUND, threadSocketsMap[realEqId]);
@@ -143,6 +175,15 @@ bool _handleEquipmentInfo(int originEqId, int destinationEqId, int realEqId) {
 	return true;
 }
 
+
+/**
+ * Handle a equipment information request response
+ * 
+ * @param originEqId : the equipment that is reponding - the one that the info was requested from
+ * @param destinationEqId : the equipment that requested the information and will receive it
+ * @param payload : the information to be forwared to {destinationEqId}
+ * @param realEqId : the equipment id that the server identified as the sender of this message (should match originEqId - a validation would be needed for security purposes) 
+ */
 bool _handleResEquipmentInfo(int originEqId, int destinationEqId, char* payload, int realEqId) {
 	if(originEqId > MAX_EQUIPMENTS || !equipments[originEqId]) {
 		_sendMessage(ERROR, originEqId, destinationEqId, ERR_SOURCE_EQUIPMENT_NOT_FOUND, threadSocketsMap[realEqId]);
@@ -161,7 +202,12 @@ bool _handleResEquipmentInfo(int originEqId, int destinationEqId, char* payload,
 }
 
 
-// Parse the message and delegate the action to the correct function
+/**
+ * Parse the message and delegate the action to the correct function
+ * 
+ * @param equipId : the equipment that sent the message
+ * @param message : all the content of the message
+ */
 void _handleMessage(int equipId, char *message) {
 	char **tokens = malloc(sizeof(char *) * MAX_TOKENS);
 	int tc; split(message, tokens, &tc, " ");
@@ -186,10 +232,14 @@ void _handleMessage(int equipId, char *message) {
 	}
 
 	free(subtokens);
-	return;
 }
 
 
+/**
+ * Thread function that repeateadly expects message from a client
+ * 
+ * @param arg {threadArgs*} : the thread arguments
+ */
 void *threadConnection(void *arg) {
 	threadArgs tArgs = *((threadArgs *) arg);
 	busyThreads[tArgs.threadId] = true;
